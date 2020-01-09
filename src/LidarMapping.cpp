@@ -1,5 +1,7 @@
 #include <ndt_mapping.h>
 
+#include <iostream>
+
 namespace ndt_mapping {
 
 void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
@@ -8,15 +10,106 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
     pcl::PointCloud<Point>::Ptr input_cloud(new pcl::PointCloud<Point>()), scan_ptr(new pcl::PointCloud<Point>());
 
     current_scan_time = input->header.stamp;
+    // ndt start time recorder
+    ndt_start = ros::Time::now();
 
     pcl::fromROSMsg(*input, *input_cloud);
 
     // 截取圆环内的点云
     clipCloudbyMinAndMaxDis(input_cloud, scan_ptr, min_scan_range, max_scan_range);
 
-    Point p;
-    pcl::PointCloud<Point>::Ptr filtered_scan_ptr(new pcl::PointCloud<Point>());
+    // 将输入的点云从激光雷达坐标系转换到以后轮中心的车辆坐标系
     pcl::PointCloud<Point>::Ptr transformed_scan_ptr(new pcl::PointCloud<Point>());
+    if (!initial_scan_loaded) {
+        pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, tf_btol);
+        map += *transformed_scan_ptr;
+        global_map += *transformed_scan_ptr;
+    }
+
+    // 匹配之前做去地面处理
+    // filter.setIfClipHeight(false);
+    // filter.setMinDistance(1.0);
+    // pcl::PointCloud<Point>::Ptr local_no_ground(new pcl::PointCloud<Point>());
+    // pcl::PointCloud<Point>::Ptr to_globalmap_for_costmap(new pcl::PointCloud<Point>());
+    // filter.convert(scan_ptr, local_no_ground);
+
+    // 对scan_ptr进行降采样
+    pcl::PointCloud<Point>::Ptr filtered_scan_ptr(new pcl::PointCloud<Point>());
+    pcl::VoxelGrid<Point> voxel_grid_filter;
+    voxel_grid_filter.setLeafSize(voxel_leaf_size, voxel_leaf_size, voxel_leaf_size);
+    voxel_grid_filter.setInputCloud(scan_ptr);
+    voxel_grid_filter.filter(*filtered_scan_ptr);
+
+    // 设置NDT source点云
+    if (_method_type == MethodType::use_pcl) {
+        pcl_ndt.setInputSource(filtered_scan_ptr);
+    } else if (_method_type == MethodType::use_cpu) {
+        cpu_ndt.setInputSource(filtered_scan_ptr);
+    }
+#ifdef CUDA_FOUND
+    else if (_method_type == MethodType::use_gpu) {
+        gpu_ndt.setInputSource(filtered_scan_ptr);
+    }
+#endif
+    else if (_method_type == MethodType::use_omp) {
+        omp_ndt.setInputSource(filtered_scan_ptr);
+    } else {
+        ROS_ERROR("Please Define _method_type to conduct NDT");
+        exit(1);
+    }
+
+    // 设置NDT target点云
+    pcl::PointCloud<Point>::Ptr map_ptr = boost::make_shared<pcl::PointCloud<Point>>(map);
+    if (!initial_scan_loaded) {
+        ROS_INFO("add first map");
+        if (_method_type == MethodType::use_pcl) {
+            pcl_ndt.setInputTarget(map_ptr);
+        } else if (_method_type == MethodType::use_cpu) {
+            cpu_ndt.setInputTarget(map_ptr);
+        }
+#ifdef CUDA_FOUND
+        else if (_method_type == MethodType::use_gpu) {
+            gpu_ndt.setInputTarget(map_ptr);
+        }
+#endif
+        else if (_method_type == MethodType::use_omp) {
+            omp_ndt.setInputTarget(map_ptr);
+        }
+        initial_scan_loaded = true;
+    }
+
+    // 根据是否使用imu和odom,按照不同方式更新guess_pose(xyz,or/and rpy)
+    pose guess_pose_for_ndt;
+    if (_use_imu && _use_odom) {
+        imu_odom_calc(current_scan_time);
+        guess_pose_for_ndt = guess_pose_imu_odom;
+    } else if (_use_imu && !_use_odom) {
+        imu_calc(current_scan_time);
+        guess_pose_for_ndt = guess_pose_imu;
+    } else if (!_use_imu && _use_odom) {
+        odom_calc(current_scan_time);
+        guess_pose_for_ndt = guess_pose_odom;
+    } else {
+        guess_pose.x = previous_pose.x + diff_x; // 初始时diff_x等都为0
+        guess_pose.y = previous_pose.y + diff_y;
+        guess_pose.z = previous_pose.z + diff_z;
+        guess_pose.roll = previous_pose.roll;
+        guess_pose.pitch = previous_pose.pitch;
+        guess_pose.yaw = previous_pose.yaw + diff_yaw;
+
+        guess_pose_for_ndt = guess_pose;
+    }
+
+    // 根据guess_pose_for_ndt 来计算初始变换矩阵guess_init
+    Eigen::AngleAxisf init_rotation_x(static_cast<const float&>(guess_pose_for_ndt.roll), Eigen::Vector3f::UnitX());
+    Eigen::AngleAxisf init_rotation_y(static_cast<const float&>(guess_pose_for_ndt.pitch), Eigen::Vector3f::UnitY());
+    Eigen::AngleAxisf init_rotation_z(static_cast<const float&>(guess_pose_for_ndt.yaw), Eigen::Vector3f::UnitZ());
+
+    Eigen::Translation3f init_translation(static_cast<const float&>(guess_pose_for_ndt.x),
+        static_cast<const float&>(guess_pose_for_ndt.y),
+        static_cast<const float&>(guess_pose_for_ndt.z));
+
+    Eigen::Matrix4f init_guess = (init_translation * init_rotation_z * init_rotation_y * init_rotation_x).matrix() * tf_btol;
 
     tf::Quaternion q;
 
@@ -28,126 +121,6 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
     tf::Transform transform;
 
     pcl::PointCloud<PointI>::Ptr in_cloud_xyzp(new pcl::PointCloud<PointI>());
-
-    ndt_start = ros::Time::now(); // ndt start time recorder
-
-    // 将输入的点云从激光雷达坐标系转换到以后轮中心的车辆坐标系
-    if (!initial_scan_loaded) {
-        pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, tf_btol); // tf_btol为初始变换矩阵
-        map += *transformed_scan_ptr;
-        global_map += *transformed_scan_ptr;
-        initial_scan_loaded = true;
-    }
-
-    // 匹配之前做去地面处理
-    // filter.setIfClipHeight(false);
-    // filter.setMinDistance(1.0);
-    // pcl::PointCloud<Point>::Ptr local_no_ground(new pcl::PointCloud<Point>());
-    // pcl::PointCloud<Point>::Ptr to_globalmap_for_costmap(new pcl::PointCloud<Point>());
-    // filter.convert(scan_ptr, local_no_ground);
-
-    // Apply voxelgrid filter  // 对scan_ptr进行降采样
-    pcl::VoxelGrid<Point> voxel_grid_filter;
-    voxel_grid_filter.setLeafSize(voxel_leaf_size, voxel_leaf_size, voxel_leaf_size);
-    voxel_grid_filter.setInputCloud(scan_ptr);
-    voxel_grid_filter.filter(*filtered_scan_ptr);
-
-    ros::Time test_time_2 = ros::Time::now(); // TODO:
-
-    // map_ptr是map的一个指针
-    // TODO:即map_ptr只是指向map,而并不是将map进行了拷贝
-    pcl::PointCloud<Point>::Ptr map_ptr(new pcl::PointCloud<Point>(map)); // 重要作用,用以保存降采样后的全局地图
-
-    if (_method_type == MethodType::use_pcl) {
-        // pcl_ndt.setTransformationEpsilon(trans_eps);
-        // pcl_ndt.setStepSize(step_size);
-        // pcl_ndt.setResolution(ndt_res);
-        // pcl_ndt.setMaximumIterations(max_iter);
-        pcl_ndt.setInputSource(filtered_scan_ptr);
-    } else if (_method_type == MethodType::use_cpu) {
-        // cpu_ndt.setTransformationEpsilon(trans_eps);
-        // cpu_ndt.setStepSize(step_size);
-        // cpu_ndt.setResolution(ndt_res);
-        // cpu_ndt.setMaximumIterations(max_iter);
-        cpu_ndt.setInputSource(filtered_scan_ptr);
-    } else if (_method_type == MethodType::use_gpu) {
-#ifdef CUDA_FOUND
-        // gpu_ndt.setTransformationEpsilon(trans_eps);
-        // gpu_ndt.setStepSize(step_size);
-        // gpu_ndt.setResolution(ndt_res);
-        // gpu_ndt.setMaximumIterations(max_iter);
-        gpu_ndt.setInputSource(filtered_scan_ptr);
-#endif
-    } else if (_method_type == MethodType::use_omp) {
-        // omp_ndt.setTransformationEpsilon(trans_eps);
-        // omp_ndt.setStepSize(step_size);
-        // omp_ndt.setResolution(ndt_res);
-        // omp_ndt.setMaximumIterations(max_iter);
-        omp_ndt.setInputSource(filtered_scan_ptr);
-    } else {
-        ROS_ERROR("Please Define _method_type to conduct NDT");
-        exit(1);
-    }
-    ros::Time test_time_3 = ros::Time::now(); // TODO:
-
-    static bool is_first_map = true; // static  // 第一帧点云直接作为 target
-    if (is_first_map) {
-        ROS_INFO("add first map");
-        if (_method_type == MethodType::use_pcl) {
-            pcl_ndt.setInputTarget(map_ptr);
-        } else if (_method_type == MethodType::use_cpu) {
-            cpu_ndt.setInputTarget(map_ptr);
-        } else if (_method_type == MethodType::use_gpu) {
-#ifdef CUDA_FOUND
-            gpu_ndt.setInputTarget(map_ptr);
-#endif
-        } else if (_method_type == MethodType::use_omp) {
-            omp_ndt.setInputTarget(map_ptr);
-        }
-        is_first_map = false;
-    }
-
-    guess_pose.x = previous_pose.x + diff_x; // 初始时diff_x等都为0
-    guess_pose.y = previous_pose.y + diff_y;
-    guess_pose.z = previous_pose.z + diff_z;
-    guess_pose.roll = previous_pose.roll;
-    guess_pose.pitch = previous_pose.pitch;
-    guess_pose.yaw = previous_pose.yaw + diff_yaw;
-
-    // 根据是否使用imu和odom,按照不同方式更新guess_pose(xyz,or/and rpy)
-    if (_use_imu && _use_odom)
-        imu_odom_calc(current_scan_time);
-    if (_use_imu && !_use_odom)
-        imu_calc(current_scan_time);
-    if (!_use_imu && _use_odom)
-        odom_calc(current_scan_time);
-
-    // start2 只是为了把上面不同方式的guess_pose都标准化成guess_pose_for_ndt,为了后续操作方便
-    pose guess_pose_for_ndt;
-    if (_use_imu && _use_odom)
-        guess_pose_for_ndt = guess_pose_imu_odom;
-    else if (_use_imu && !_use_odom)
-        guess_pose_for_ndt = guess_pose_imu;
-    else if (!_use_imu && _use_odom)
-        guess_pose_for_ndt = guess_pose_odom;
-    else
-        guess_pose_for_ndt = guess_pose;
-    // end2
-
-    // start3 以下:根据guess_pose_for_ndt 来计算初始变换矩阵guess_init -- 针对TargetSource
-    Eigen::AngleAxisf init_rotation_x(static_cast<const float&>(guess_pose_for_ndt.roll), Eigen::Vector3f::UnitX());
-    Eigen::AngleAxisf init_rotation_y(static_cast<const float&>(guess_pose_for_ndt.pitch), Eigen::Vector3f::UnitY());
-    Eigen::AngleAxisf init_rotation_z(static_cast<const float&>(guess_pose_for_ndt.yaw), Eigen::Vector3f::UnitZ());
-
-    Eigen::Translation3f init_translation(static_cast<const float&>(guess_pose_for_ndt.x),
-        static_cast<const float&>(guess_pose_for_ndt.y),
-        static_cast<const float&>(guess_pose_for_ndt.z));
-
-    Eigen::Matrix4f init_guess = (init_translation * init_rotation_z * init_rotation_y * init_rotation_x).matrix() * tf_btol; // tf_btol
-    // end3
-
-    t3_end = ros::Time::now();
-    d3 = t3_end - t3_start;
 
     // 用以保存ndt转换后的点云,align参数
     pcl::PointCloud<Point>::Ptr output_cloud(new pcl::PointCloud<Point>);
@@ -165,32 +138,33 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
         t_localizer = cpu_ndt.getFinalTransformation();
         has_converged = cpu_ndt.hasConverged();
         final_num_iteration = cpu_ndt.getFinalNumIteration();
-    } else if (_method_type == MethodType::use_gpu) {
+    }
 #ifdef CUDA_FOUND
+    else if (_method_type == MethodType::use_gpu) {
         gpu_ndt.align(init_guess); // ndt_gpu库的align,不传出配准后的点云 ---用法同cpu_ndt
         fitness_score = gpu_ndt.getFitnessScore();
         t_localizer = gpu_ndt.getFinalTransformation();
         has_converged = gpu_ndt.hasConverged();
         final_num_iteration = gpu_ndt.getFinalNumIteration();
+    }
 #endif
-    } else if (_method_type == MethodType::use_omp) {
+    else if (_method_type == MethodType::use_omp) {
         omp_ndt.align(*output_cloud, init_guess); // omp_ndt.align用法同pcl::ndt
         fitness_score = omp_ndt.getFitnessScore();
         t_localizer = omp_ndt.getFinalTransformation();
         has_converged = omp_ndt.hasConverged();
         final_num_iteration = omp_ndt.getFinalNumIteration();
     }
+
     ndt_end = ros::Time::now();
-    ros::Time test_time_4 = ros::Time::now(); // TODO:
 
     if (final_num_iteration > 20) {
-        ROS_ERROR("too much iteration !");
+        ROS_WARN("num of iteration > 20 !, abandon this align");
         return;
     }
 
     t_base_link = t_localizer * tf_ltob;
 
-    // 配准变换 --注意:
     pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, t_localizer);
 
     tf::Matrix3x3 mat_l, mat_b; // 用以根据齐次坐标下的旋转变换,来求rpy转换角度

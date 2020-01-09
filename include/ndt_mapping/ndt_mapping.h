@@ -15,6 +15,9 @@
 #include <thread>
 #include <utils.h>
 
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+
 #include <nav_msgs/Odometry.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/PointCloud2.h>
@@ -49,7 +52,13 @@ private:
     double param_tf_timeout;
     std::string param_base_frame;
     std::string param_laser_frame;
-    Eigen::Matrix4f tf_btol, tf_ltob; // base_link -> laser_link
+
+    tf::TransformBroadcaster br;
+
+    // tf_laser_base 为 base_link 坐标系到 laser_link 坐标系的转换矩阵
+    // tf_base_laser 为 laser_link 坐标系到 base_link 坐标系的转换矩阵
+    Eigen::Matrix4f tf_base_laser, tf_laser_base; // base_link -> laser_link
+    Eigen::Matrix4f tf_btol, tf_ltob;
 
     pose previous_pose, guess_pose, guess_pose_imu, guess_pose_odom, guess_pose_imu_odom;
     pose current_pose, current_pose_imu, current_pose_odom, current_pose_imu_odom;
@@ -89,7 +98,10 @@ private:
     // 定义各种差异值(两次采集数据之间的差异,包括点云位置差异,imu差异,odom差异,imu-odom差异)
     double diff;
     double diff_x, diff_y, diff_z, diff_yaw; // current_pose - previous_pose // 定义两帧点云差异值 --以确定是否更新点云等
+
+    // 由于IMU频率比激光雷达高，offset_imu为在激光雷达两帧之间的imu积分，在新的激光雷达到达的时候就会被清除，避免长时间IMU积分产生累计误差
     double offset_imu_x, offset_imu_y, offset_imu_z, offset_imu_roll, offset_imu_pitch, offset_imu_yaw;
+
     double offset_odom_x, offset_odom_y, offset_odom_z, offset_odom_roll, offset_odom_pitch, offset_odom_yaw;
     double offset_imu_odom_x, offset_imu_odom_y, offset_imu_odom_z, offset_imu_odom_roll, offset_imu_odom_pitch,
         offset_imu_odom_yaw;

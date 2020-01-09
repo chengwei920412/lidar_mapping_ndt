@@ -49,7 +49,7 @@ void LidarMapping::param_initial(ros::NodeHandle& nh, ros::NodeHandle& privateHa
     filter.setLidarHeight(lidar_height);
     param = new Param();
 
-        privateHandle.param<double>("tf_timeout", param_tf_timeout, 0.05);
+    privateHandle.param<double>("tf_timeout", param_tf_timeout, 0.05);
     privateHandle.param<bool>("visualize", param_visualize, false);
 
     privateHandle.param<float>("ndt_resolution", ndt_res, 1.0);
@@ -177,9 +177,12 @@ void LidarMapping::param_initial(ros::NodeHandle& nh, ros::NodeHandle& privateHa
     privateHandle.param<double>("tf_yaw", _tf_yaw, 0.);
 
     Eigen::Translation3f tl_btol(_tf_x, _tf_y, _tf_z);
+
     Eigen::AngleAxisf rot_x_btol(_tf_roll, Eigen::Vector3f::UnitX());
     Eigen::AngleAxisf rot_y_btol(_tf_pitch, Eigen::Vector3f::UnitY());
     Eigen::AngleAxisf rot_z_btol(_tf_yaw, Eigen::Vector3f::UnitZ());
+    tf_base_laser = (tl_btol * rot_z_btol * rot_y_btol * rot_x_btol).matrix();
+    tf_laser_base = tf_base_laser.inverse();
     tf_btol = (tl_btol * rot_z_btol * rot_y_btol * rot_x_btol).matrix();
     tf_ltob = tf_btol.inverse();
     // end set base_link -> laser_link
