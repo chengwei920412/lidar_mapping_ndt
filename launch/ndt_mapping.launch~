@@ -1,0 +1,35 @@
+<launch>
+    <!--default定义的值可以在launch的时候通过命令行指定而被覆盖,而value定义的值不会-->
+    <param name="use_sim_time" value="true" type="bool"/>   <!-- 一定要使用虚拟时间 -->
+    <node pkg="tf" type="static_transform_publisher" name="base2laser" args="0.5 0 1.70 0 0 0 1  base_link velodyne 100" />
+
+    <node pkg="ndt_mapping" type="fast_ndt_mapping_node" name="fast_ndt_mapping_node" output="screen">
+        <rosparam file="$(find ndt_mapping)/params/config.yaml" command="load"/>
+
+        <!-- global map -->
+        <param name="is_publish_map_full" type="bool" value="true" />
+        <param name="global_voxel_leafsize" type="double" value="0.5" />
+        <param name="min_add_scan_shift" type="double" value="2.0" />
+        <param name="min_update_target_map" type="double" value="2.0" />
+
+        <!-- planning map  -->
+        <param name="is_publish_map_for_planning" type="bool" value="false" />
+        <param name="planning_map_folder" type="string" value="/home/sin/data/maps/test/plan/" />
+        <param name="planning_map_voxel_size" type="double" value="0.5" />
+        <param name="planning_piece_size" type="int" value="100000" />
+
+        <!-- cost map -->
+        <param name="is_publish_map_for_costmap" type="bool" value="false" />
+        <param name="cost_map_folder" type="string" value="/home/sin/data/maps/test/cost/" />
+        <param name="costmap_voxel_size" type="double" value="0.5" />
+        <param name="cost_piece_size" type="int" value="100000" />
+        
+        <!-- piece_map 相关参数: piece map 需要开启fullmap -->
+        <param name="if_create_piece_map" type="bool" value="true" />
+        <param name="piece_map_folder" type="string" value="/home/sunm/Desktop/test/src/smartcar/map/ndt_mapping/data" />
+        <param name="piece_map_voxel_size" type="double" value="0.5" />
+        <param name="piecemap_size" type="int" value="20000" />
+    </node>
+
+    <node pkg="rviz" type="rviz" name="Rviz_for_ndt_mapping" args="-d $(find ndt_mapping)/rviz/test.rviz" />
+</launch>

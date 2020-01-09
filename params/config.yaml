@@ -1,0 +1,41 @@
+#>>>>>>>>>Smartcar Lab
+laser_frame: "velodyne"
+# imu_topic: "/imu"
+lidar_topic: "/velodyne_points"
+
+#>>>>>>>>>Switch
+# use_imu: false
+use_odom: false
+# imu_upside_down: false
+
+visualize: true
+ndt_method_type: 1 # 0:pcl 1:cpu 2:gpu 3:omp 4:gpu_ptr
+
+#>>>>>>>>>common params
+base_frame: "base_link"
+odom_topic: "/odom_raw"
+incremental_voxel_update: "true"
+
+# ndt params
+ndt_resolution: 1.0
+ndt_step_size: 0.1
+ndt_trans_eps: 0.01
+ndt_max_iter: 20
+voxel_leaf_size: 1.0 # matching map
+
+# scan-points filter params
+min_scan_range: 2.0
+max_scan_range: 70.0
+
+extract_length: 60 # extract target_map from voxeled_local_map
+extract_width: 50
+
+tf_timeout: 1.0
+
+# >>>> 静态tf变换(base2laser)
+tf_x: 0.5
+tf_y: 0
+tf_z: 1.7
+tf_roll: 0
+tf_pitch: 0
+tf_yaw: 0
