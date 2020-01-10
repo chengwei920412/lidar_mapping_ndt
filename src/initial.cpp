@@ -183,7 +183,6 @@ void LidarMapping::param_initial(ros::NodeHandle& nh, ros::NodeHandle& privateHa
     Eigen::AngleAxisf rot_z_btol(_tf_yaw, Eigen::Vector3f::UnitZ());
     tf_base_laser = (tl_btol * rot_z_btol * rot_y_btol * rot_x_btol).matrix();
     tf_laser_base = tf_base_laser.inverse();
-    // end set base_link -> laser_link
 
     previous_pose.x = 0.0;
     previous_pose.y = 0.0;
