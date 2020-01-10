@@ -1,4 +1,8 @@
 #include <ndt_mapping.h>
+#include <pcl/common/transforms.h> //allows us to use pcl::transformPointCloud function
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_cloud.h>
+#include <pcl/visualization/pcl_visualizer.h>
 
 namespace ndt_mapping {
 double LidarMapping::warpToPm(double a_num, const double a_max)
@@ -32,7 +36,7 @@ void LidarMapping::clipCloudbyMinAndMaxDis(const pcl::PointCloud<Point>::Ptr& in
 
     pcl::PointIndices indices;
 
-    // #pragma omp for
+#pragma omp for
     for (size_t i = 0; i < input_cloud->points.size(); i++) {
         Point point = input_cloud->points[i];
         double r = std::sqrt(pow(point.x, 2.0) + pow(point.y, 2.0));
@@ -43,5 +47,32 @@ void LidarMapping::clipCloudbyMinAndMaxDis(const pcl::PointCloud<Point>::Ptr& in
     cliper.setIndices(boost::make_shared<pcl::PointIndices>(indices));
     cliper.setNegative(false); //ture to remove the indices
     cliper.filter(*output_cloud);
+}
+
+void visualPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& first_cloud, const pcl::PointCloud<pcl::PointXYZ>::Ptr& second_cloud)
+{
+    // Visualization
+    printf("\nPoint cloud colors :  white  = original point cloud \n"
+           "                        red  = transformed point cloud\n");
+
+    pcl::visualization::PCLVisualizer viewer("Matrix transformation example");
+
+    // Define R,G,B colors for the point cloud
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> source_cloud_color_handler(first_cloud, 255, 255, 255);
+    // We add the point cloud to the viewer and pass the color handler
+    viewer.addPointCloud(first_cloud, source_cloud_color_handler, "original_cloud");
+
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> transformed_cloud_color_handler(second_cloud, 230, 20, 20); // Red
+    viewer.addPointCloud(second_cloud, transformed_cloud_color_handler, "transformed_cloud");
+
+    viewer.addCoordinateSystem(1.0, 0); //Adds 3D axes describing a coordinate system to screen at 0,0,0.
+    viewer.setBackgroundColor(0.05, 0.05, 0.05, 0); // Setting background to a dark grey
+    viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "original_cloud");
+    viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "transformed_cloud");
+    //viewer.setPosition(800, 400); // Setting visualiser window position
+
+    while (!viewer.wasStopped()) { // Display the visualiser until 'q' key is pressed
+        viewer.spinOnce();
+    }
 }
 }

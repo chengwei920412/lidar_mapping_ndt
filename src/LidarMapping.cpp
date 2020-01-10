@@ -1,5 +1,7 @@
 #include <ndt_mapping.h>
 
+#include <iostream>
+
 namespace ndt_mapping {
 
 void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
@@ -8,35 +10,23 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
     pcl::PointCloud<Point>::Ptr input_cloud(new pcl::PointCloud<Point>()), scan_ptr(new pcl::PointCloud<Point>());
 
     current_scan_time = input->header.stamp;
+    // ndt start time recorder
+    ndt_start = ros::Time::now();
 
     pcl::fromROSMsg(*input, *input_cloud);
 
     // 截取圆环内的点云
     clipCloudbyMinAndMaxDis(input_cloud, scan_ptr, min_scan_range, max_scan_range);
 
-    Point p;
-    pcl::PointCloud<Point>::Ptr filtered_scan_ptr(new pcl::PointCloud<Point>());
-    pcl::PointCloud<Point>::Ptr transformed_scan_ptr(new pcl::PointCloud<Point>());
-
-    tf::Quaternion q;
-
-    Eigen::Matrix4f t_localizer(Eigen::Matrix4f::Identity());
-    Eigen::Matrix4f t_base_link(Eigen::Matrix4f::Identity());
-
-    static tf::TransformBroadcaster br;
-
-    tf::Transform transform;
-
-    pcl::PointCloud<PointI>::Ptr in_cloud_xyzp(new pcl::PointCloud<PointI>());
-
-    ndt_start = ros::Time::now(); // ndt start time recorder
-
     // 将输入的点云从激光雷达坐标系转换到以后轮中心的车辆坐标系
+    // 点云原本是以激光雷达自身坐标系为原点
+    // 将第一帧点云转换到以车辆后轮中心坐标系为原点，并添加到地图中
+    // 地图的世界坐标系原点位于车辆后轴中心
+    pcl::PointCloud<Point>::Ptr transformed_scan_ptr(new pcl::PointCloud<Point>());
     if (!initial_scan_loaded) {
-        pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, tf_btol); // tf_btol为初始变换矩阵
+        pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, tf_base_laser);
         map += *transformed_scan_ptr;
         global_map += *transformed_scan_ptr;
-        initial_scan_loaded = true;
     }
 
     // 匹配之前做去地面处理
@@ -46,95 +36,77 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
     // pcl::PointCloud<Point>::Ptr to_globalmap_for_costmap(new pcl::PointCloud<Point>());
     // filter.convert(scan_ptr, local_no_ground);
 
-    // Apply voxelgrid filter  // 对scan_ptr进行降采样
+    // 对scan_ptr进行降采样
+    pcl::PointCloud<Point>::Ptr filtered_scan_ptr(new pcl::PointCloud<Point>());
     pcl::VoxelGrid<Point> voxel_grid_filter;
     voxel_grid_filter.setLeafSize(voxel_leaf_size, voxel_leaf_size, voxel_leaf_size);
     voxel_grid_filter.setInputCloud(scan_ptr);
     voxel_grid_filter.filter(*filtered_scan_ptr);
 
-    ros::Time test_time_2 = ros::Time::now(); // TODO:
-
-    // map_ptr是map的一个指针
-    // TODO:即map_ptr只是指向map,而并不是将map进行了拷贝
-    pcl::PointCloud<Point>::Ptr map_ptr(new pcl::PointCloud<Point>(map)); // 重要作用,用以保存降采样后的全局地图
-
+    // 设置NDT source点云
     if (_method_type == MethodType::use_pcl) {
-        // pcl_ndt.setTransformationEpsilon(trans_eps);
-        // pcl_ndt.setStepSize(step_size);
-        // pcl_ndt.setResolution(ndt_res);
-        // pcl_ndt.setMaximumIterations(max_iter);
         pcl_ndt.setInputSource(filtered_scan_ptr);
     } else if (_method_type == MethodType::use_cpu) {
-        // cpu_ndt.setTransformationEpsilon(trans_eps);
-        // cpu_ndt.setStepSize(step_size);
-        // cpu_ndt.setResolution(ndt_res);
-        // cpu_ndt.setMaximumIterations(max_iter);
         cpu_ndt.setInputSource(filtered_scan_ptr);
-    } else if (_method_type == MethodType::use_gpu) {
+        // cpu_ndt.setInputSource(scan_ptr);
+
+    }
 #ifdef CUDA_FOUND
-        // gpu_ndt.setTransformationEpsilon(trans_eps);
-        // gpu_ndt.setStepSize(step_size);
-        // gpu_ndt.setResolution(ndt_res);
-        // gpu_ndt.setMaximumIterations(max_iter);
+    else if (_method_type == MethodType::use_gpu) {
         gpu_ndt.setInputSource(filtered_scan_ptr);
+    }
 #endif
-    } else if (_method_type == MethodType::use_omp) {
-        // omp_ndt.setTransformationEpsilon(trans_eps);
-        // omp_ndt.setStepSize(step_size);
-        // omp_ndt.setResolution(ndt_res);
-        // omp_ndt.setMaximumIterations(max_iter);
+    else if (_method_type == MethodType::use_omp) {
         omp_ndt.setInputSource(filtered_scan_ptr);
     } else {
         ROS_ERROR("Please Define _method_type to conduct NDT");
         exit(1);
     }
-    ros::Time test_time_3 = ros::Time::now(); // TODO:
 
-    static bool is_first_map = true; // static  // 第一帧点云直接作为 target
-    if (is_first_map) {
+    // 设置NDT target点云
+    pcl::PointCloud<Point>::Ptr map_ptr = boost::make_shared<pcl::PointCloud<Point>>(map);
+    if (!initial_scan_loaded) {
         ROS_INFO("add first map");
         if (_method_type == MethodType::use_pcl) {
             pcl_ndt.setInputTarget(map_ptr);
         } else if (_method_type == MethodType::use_cpu) {
             cpu_ndt.setInputTarget(map_ptr);
-        } else if (_method_type == MethodType::use_gpu) {
+            // cpu_ndt.setInputTarget(transformed_scan_ptr);
+        }
 #ifdef CUDA_FOUND
+        else if (_method_type == MethodType::use_gpu) {
             gpu_ndt.setInputTarget(map_ptr);
+        }
 #endif
-        } else if (_method_type == MethodType::use_omp) {
+        else if (_method_type == MethodType::use_omp) {
             omp_ndt.setInputTarget(map_ptr);
         }
-        is_first_map = false;
+        initial_scan_loaded = true;
     }
 
-    guess_pose.x = previous_pose.x + diff_x; // 初始时diff_x等都为0
-    guess_pose.y = previous_pose.y + diff_y;
-    guess_pose.z = previous_pose.z + diff_z;
-    guess_pose.roll = previous_pose.roll;
-    guess_pose.pitch = previous_pose.pitch;
-    guess_pose.yaw = previous_pose.yaw + diff_yaw;
-
     // 根据是否使用imu和odom,按照不同方式更新guess_pose(xyz,or/and rpy)
-    if (_use_imu && _use_odom)
-        imu_odom_calc(current_scan_time);
-    if (_use_imu && !_use_odom)
-        imu_calc(current_scan_time);
-    if (!_use_imu && _use_odom)
-        odom_calc(current_scan_time);
-
-    // start2 只是为了把上面不同方式的guess_pose都标准化成guess_pose_for_ndt,为了后续操作方便
     pose guess_pose_for_ndt;
-    if (_use_imu && _use_odom)
+    if (_use_imu && _use_odom) {
+        imu_odom_calc(current_scan_time);
         guess_pose_for_ndt = guess_pose_imu_odom;
-    else if (_use_imu && !_use_odom)
+    } else if (_use_imu && !_use_odom) {
+        imu_calc(current_scan_time);
         guess_pose_for_ndt = guess_pose_imu;
-    else if (!_use_imu && _use_odom)
+    } else if (!_use_imu && _use_odom) {
+        odom_calc(current_scan_time);
         guess_pose_for_ndt = guess_pose_odom;
-    else
-        guess_pose_for_ndt = guess_pose;
-    // end2
+    } else {
+        guess_pose.x = previous_pose.x + diff_x; // 初始时diff_x等都为0
+        guess_pose.y = previous_pose.y + diff_y;
+        guess_pose.z = previous_pose.z + diff_z;
+        guess_pose.roll = previous_pose.roll;
+        guess_pose.pitch = previous_pose.pitch;
+        guess_pose.yaw = previous_pose.yaw + diff_yaw;
 
-    // start3 以下:根据guess_pose_for_ndt 来计算初始变换矩阵guess_init -- 针对TargetSource
+        guess_pose_for_ndt = guess_pose;
+    }
+
+    // 根据guess_pose_for_ndt 来计算初始变换矩阵guess_init
     Eigen::AngleAxisf init_rotation_x(static_cast<const float&>(guess_pose_for_ndt.roll), Eigen::Vector3f::UnitX());
     Eigen::AngleAxisf init_rotation_y(static_cast<const float&>(guess_pose_for_ndt.pitch), Eigen::Vector3f::UnitY());
     Eigen::AngleAxisf init_rotation_z(static_cast<const float&>(guess_pose_for_ndt.yaw), Eigen::Vector3f::UnitZ());
@@ -143,15 +115,13 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
         static_cast<const float&>(guess_pose_for_ndt.y),
         static_cast<const float&>(guess_pose_for_ndt.z));
 
-    Eigen::Matrix4f init_guess = (init_translation * init_rotation_z * init_rotation_y * init_rotation_x).matrix() * tf_btol; // tf_btol
-    // end3
-
-    t3_end = ros::Time::now();
-    d3 = t3_end - t3_start;
+    //这里是初始位姿估计，不过由于guess_pose_for_ndt位姿估计是车辆后轴坐标系在世界坐标系map的位姿，还需要转化为激光雷达坐标系在世界坐标系map下面的位姿
+    Eigen::Matrix4f init_guess = (init_translation * init_rotation_z * init_rotation_y * init_rotation_x).matrix() * tf_base_laser;
 
     // 用以保存ndt转换后的点云,align参数
+    Eigen::Matrix4f t_localizer(Eigen::Matrix4f::Identity());
+    Eigen::Matrix4f t_base_link(Eigen::Matrix4f::Identity());
     pcl::PointCloud<Point>::Ptr output_cloud(new pcl::PointCloud<Point>);
-
     if (_method_type == MethodType::use_pcl) {
         pcl_ndt.align(*output_cloud, init_guess); // pcl::aligin 需传入转换后的点云(容器),估计变换
         fitness_score = pcl_ndt.getFitnessScore();
@@ -165,58 +135,49 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
         t_localizer = cpu_ndt.getFinalTransformation();
         has_converged = cpu_ndt.hasConverged();
         final_num_iteration = cpu_ndt.getFinalNumIteration();
-    } else if (_method_type == MethodType::use_gpu) {
+    }
 #ifdef CUDA_FOUND
+    else if (_method_type == MethodType::use_gpu) {
         gpu_ndt.align(init_guess); // ndt_gpu库的align,不传出配准后的点云 ---用法同cpu_ndt
         fitness_score = gpu_ndt.getFitnessScore();
         t_localizer = gpu_ndt.getFinalTransformation();
         has_converged = gpu_ndt.hasConverged();
         final_num_iteration = gpu_ndt.getFinalNumIteration();
+    }
 #endif
-    } else if (_method_type == MethodType::use_omp) {
+    else if (_method_type == MethodType::use_omp) {
         omp_ndt.align(*output_cloud, init_guess); // omp_ndt.align用法同pcl::ndt
         fitness_score = omp_ndt.getFitnessScore();
         t_localizer = omp_ndt.getFinalTransformation();
         has_converged = omp_ndt.hasConverged();
         final_num_iteration = omp_ndt.getFinalNumIteration();
     }
+
     ndt_end = ros::Time::now();
-    ros::Time test_time_4 = ros::Time::now(); // TODO:
 
     if (final_num_iteration > 20) {
-        ROS_ERROR("too much iteration !");
+        ROS_WARN("num of iteration > 20 !, abandon this align");
         return;
     }
+    // t_localizer是激光雷达在世界坐标系map下面的坐标
+    // tf_laser_base是车辆坐标系在世界坐标系map下面的坐标
+    t_base_link = t_localizer * tf_laser_base;
 
-    t_base_link = t_localizer * tf_ltob;
-
-    // 配准变换 --注意:
-    pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, t_localizer);
-
-    tf::Matrix3x3 mat_l, mat_b; // 用以根据齐次坐标下的旋转变换,来求rpy转换角度
-    mat_l.setValue(static_cast<double>(t_localizer(0, 0)), static_cast<double>(t_localizer(0, 1)),
-        static_cast<double>(t_localizer(0, 2)), static_cast<double>(t_localizer(1, 0)),
-        static_cast<double>(t_localizer(1, 1)), static_cast<double>(t_localizer(1, 2)),
-        static_cast<double>(t_localizer(2, 0)), static_cast<double>(t_localizer(2, 1)),
-        static_cast<double>(t_localizer(2, 2)));
-
+    tf::Matrix3x3 mat_b;
     mat_b.setValue(static_cast<double>(t_base_link(0, 0)), static_cast<double>(t_base_link(0, 1)),
         static_cast<double>(t_base_link(0, 2)), static_cast<double>(t_base_link(1, 0)),
         static_cast<double>(t_base_link(1, 1)), static_cast<double>(t_base_link(1, 2)),
         static_cast<double>(t_base_link(2, 0)), static_cast<double>(t_base_link(2, 1)),
         static_cast<double>(t_base_link(2, 2)));
 
-    // Update localizer_pose.  // 更新局部下的坐标
-    localizer_pose.x = t_localizer(0, 3);
-    localizer_pose.y = t_localizer(1, 3);
-    localizer_pose.z = t_localizer(2, 3);
-    mat_l.getRPY(localizer_pose.roll, localizer_pose.pitch, localizer_pose.yaw, 1);
-
     // Update ndt_pose.  // 更新全局下的坐标
     ndt_pose.x = t_base_link(0, 3);
     ndt_pose.y = t_base_link(1, 3);
     ndt_pose.z = t_base_link(2, 3);
     mat_b.getRPY(ndt_pose.roll, ndt_pose.pitch, ndt_pose.yaw, 1);
+
+    pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, t_localizer);
+
     // current_pose
     current_pose.x = ndt_pose.x;
     current_pose.y = ndt_pose.y;
@@ -225,28 +186,33 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
     current_pose.pitch = ndt_pose.pitch;
     current_pose.yaw = ndt_pose.yaw;
 
+    pcl::PointCloud<PointI>::Ptr in_cloud_xyzp(new pcl::PointCloud<PointI>());
+
+    // 发布tf变换： map到base之间的变换
+    tf::Transform transform;
     transform.setOrigin(tf::Vector3(current_pose.x, current_pose.y, current_pose.z));
+    tf::Quaternion q;
     q.setRPY(current_pose.roll, current_pose.pitch, current_pose.yaw);
     transform.setRotation(q);
 
     br.sendTransform(tf::StampedTransform(transform, current_scan_time, "map", param_base_frame));
 
-    //		根据current和previous两帧之间的scantime,以及两帧之间的位置,计算两帧之间的变化
-    scan_duration = current_scan_time - previous_scan_time;
-    double secs = scan_duration.toSec();
+    //	根据current和previous两帧之间的scantime,以及两帧之间的位置,计算两帧之间的变化
+    double secs = (current_scan_time - previous_scan_time).toSec();
 
-    // Calculate the offset (curren_pos - previous_pos)
-    // *****************************************
+    // 计算两个激光帧之间的偏移量
     diff_x = current_pose.x - previous_pose.x;
     diff_y = current_pose.y - previous_pose.y;
     diff_z = current_pose.z - previous_pose.z;
     diff_yaw = calcDiffForRadian(current_pose.yaw, previous_pose.yaw);
     diff = sqrt(diff_x * diff_x + diff_y * diff_y + diff_z * diff_z);
 
+    // 计算两帧之间的速度
     current_velocity_x = diff_x / secs;
     current_velocity_y = diff_y / secs;
     current_velocity_z = diff_z / secs;
 
+    // 更新里程计的位姿
     current_pose_imu.x = current_pose.x;
     current_pose_imu.y = current_pose.y;
     current_pose_imu.z = current_pose.z;
@@ -268,13 +234,12 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
     current_pose_imu_odom.pitch = current_pose.pitch;
     current_pose_imu_odom.yaw = current_pose.yaw;
 
-    current_velocity_imu_x = current_velocity_x; // 修正imu速度
+    // 修正imu速度
+    current_velocity_imu_x = current_velocity_x;
     current_velocity_imu_y = current_velocity_y;
     current_velocity_imu_z = current_velocity_z;
-    // ************************************************
 
-    // Update position and posture. current_pos -> previous_pos
-    // -----------------------------------------------
+    // 更新上一时刻的参数
     previous_pose.x = current_pose.x;
     previous_pose.y = current_pose.y;
     previous_pose.z = current_pose.z;
@@ -285,6 +250,7 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
     previous_scan_time.sec = current_scan_time.sec;
     previous_scan_time.nsec = current_scan_time.nsec;
 
+    // 清空里程计积分
     offset_imu_x = 0.0;
     offset_imu_y = 0.0;
     offset_imu_z = 0.0;
@@ -305,13 +271,10 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
     offset_imu_odom_roll = 0.0;
     offset_imu_odom_pitch = 0.0;
     offset_imu_odom_yaw = 0.0;
-    // ------------------------------------------------
 
     // Calculate the shift between added_pos and current_pos // 以确定是否更新全局地图
     // added_pose将一直定位于localMap的原点
     // ###############################################################################
-
-    ros::Time test_time_5 = ros::Time::now(); // TODO:
 
     // 发布用于定义可行驶区域,提取轨迹点的地图 // 该地图保留地面,且高度仅保留地面以上30公分左右
     pcl::PointCloud<PointI>::Ptr transformed_incloud(new pcl::PointCloud<PointI>());
@@ -516,6 +479,8 @@ void LidarMapping::points_callback(const sensor_msgs::PointCloud2::ConstPtr& inp
                   << ", " << current_pose.pitch << ", " << current_pose.yaw << ")" << std::endl;
         std::cout << "Transformation Matrix:" << std::endl;
         std::cout << t_localizer << std::endl;
+        std::cout << "Transformation Matrix: (base_link)" << std::endl;
+        std::cout << t_base_link << std::endl;
         std::cout << "shift: " << shift << std::endl;
 
         std::cout << "---------------------------------------------" << std::endl;

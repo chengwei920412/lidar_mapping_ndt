@@ -32,7 +32,7 @@ extract_width: 50
 
 tf_timeout: 1.0
 
-# >>>> 静态tf变换(base2laser)
+# 激光雷达到车辆后轮坐标系的转换
 tf_x: 0.5
 tf_y: 0
 tf_z: 1.7

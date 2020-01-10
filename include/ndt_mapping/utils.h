@@ -65,6 +65,8 @@ static ros::Time callback_start, callback_end, t1_start, t1_end, t2_start, t2_en
 
 static ros::Duration d_callback, d1, d2, d3, d4, d5;
 
+void visualPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& first_cloud, const pcl::PointCloud<pcl::PointXYZ>::Ptr& second_cloud);
+
 } // namespace ndt_mapping
 
 #endif //NDT_UTILS_H

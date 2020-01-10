@@ -78,44 +78,53 @@ void LidarMapping::imu_callback(const sensor_msgs::Imu::Ptr& input)
 void LidarMapping::imu_calc(ros::Time current_time)
 {
     static ros::Time previous_time = current_time;
+
     double diff_time = (current_time - previous_time).toSec();
 
     double diff_imu_roll = imu.angular_velocity.x * diff_time;
     double diff_imu_pitch = imu.angular_velocity.y * diff_time;
     double diff_imu_yaw = imu.angular_velocity.z * diff_time;
 
+    // 在没有新的激光雷达数据来的时候，使用imu的角速度计更新角度，当新的imu数据来了之后，使用ndt的位姿来更新角度，避免IMU累计积分误差
     current_pose_imu.roll += diff_imu_roll;
     current_pose_imu.pitch += diff_imu_pitch;
     current_pose_imu.yaw += diff_imu_yaw;
 
-    // 对imu由于不平衡造成的补偿问题,在这里解决
-    // start1
+    // TODO 这里的IMU积分是完整的标准积分，由于自动驾驶车辆的没没有Y与Z的加速度，后续考虑变换为适应于车辆的IMU积分
+    // 将imubody坐标系下面的线速度转换到世界坐标系下面
+    // 先绕x轴旋转
     double accX1 = imu.linear_acceleration.x;
     double accY1 = std::cos(current_pose_imu.roll) * imu.linear_acceleration.y - std::sin(current_pose_imu.roll) * imu.linear_acceleration.z;
     double accZ1 = std::sin(current_pose_imu.roll) * imu.linear_acceleration.y + std::cos(current_pose_imu.roll) * imu.linear_acceleration.z;
 
-    double accX2 = std::sin(current_pose_imu.pitch) * accZ1 + std::cos(current_pose_imu.pitch) * accX1;
+    // 再绕y轴旋转
+    double accX2 = std::cos(current_pose_imu.pitch) * accX1 - std::sin(current_pose_imu.pitch) * accZ1;
     double accY2 = accY1;
-    double accZ2 = std::cos(current_pose_imu.pitch) * accZ1 - std::sin(current_pose_imu.pitch) * accX1;
+    double accZ2 = std::sin(current_pose_imu.pitch) * accX1 + std::cos(current_pose_imu.pitch) * accZ1;
 
+    // 再绕z轴旋转
     double accX = std::cos(current_pose_imu.yaw) * accX2 - std::sin(current_pose_imu.yaw) * accY2;
     double accY = std::sin(current_pose_imu.yaw) * accX2 + std::cos(current_pose_imu.yaw) * accY2;
     double accZ = accZ2;
-    // end1
 
     // imu计算xyz方向上的偏移,初始速度用的imu_x为slam计算获得,后面再加上考虑加速度以及时间参数,获得较为准确的距离偏移
+    // imu的速度值会通过slam进行修正,以避免累计误差，或者说imu计算时所用的速度并不是用imu得到的,而是用slam得到的
+    // imu所提供的参数,主要用来计算角度上的偏移,以及加速度导致的距离上的偏移!
     offset_imu_x += current_velocity_imu_x * diff_time + accX * diff_time * diff_time / 2.0;
     offset_imu_y += current_velocity_imu_y * diff_time + accY * diff_time * diff_time / 2.0;
     offset_imu_z += current_velocity_imu_z * diff_time + accZ * diff_time * diff_time / 2.0;
 
-    current_velocity_imu_x += accX * diff_time; // imu的速度值会通过slam进行修正,以避免累计误差
-    current_velocity_imu_y += accY * diff_time; // 或者说imu计算时所用的速度并不是用imu得到的,而是用slam得到的
-    current_velocity_imu_z += accZ * diff_time; // imu所提供的参数,主要用来计算角度上的偏移,以及加速度导致的距离上的偏移!@
+    // 在没有新的激光雷达数据来的时候，使用imu的加速度计更新速度，当新的imu数据来了之后，使用ndt的位置变化率来更新速度，避免IMU累计积分误差
+    current_velocity_imu_x += accX * diff_time;
+    current_velocity_imu_y += accY * diff_time;
+    current_velocity_imu_z += accZ * diff_time;
 
+    // 由于IMU频率比激光雷达高，offset_imu为在激光雷达两帧之间的imu积分，在新的激光雷达到达的时候就会被清除，避免长时间IMU积分产生累计误差
     offset_imu_roll += diff_imu_roll;
     offset_imu_pitch += diff_imu_pitch;
     offset_imu_yaw += diff_imu_yaw;
 
+    // guess_pose_imu 为在激光雷达到达间隔，通过IMU积分得到的位姿，用于给下一时刻的激光雷达提供初始值
     guess_pose_imu.x = previous_pose.x + offset_imu_x;
     guess_pose_imu.y = previous_pose.y + offset_imu_y;
     guess_pose_imu.z = previous_pose.z + offset_imu_z;
