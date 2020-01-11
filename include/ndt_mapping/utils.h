@@ -2,7 +2,10 @@
 #define NDT_UTILS_H
 
 #include <Eigen/Dense>
+#include <chrono>
+#include <iostream>
 #include <ros/ros.h>
+#include <string>
 
 namespace ndt_mapping {
 // ndt位姿结构体
@@ -66,6 +69,32 @@ static ros::Time callback_start, callback_end, t1_start, t1_end, t2_start, t2_en
 static ros::Duration d_callback, d1, d2, d3, d4, d5;
 
 void visualPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& first_cloud, const pcl::PointCloud<pcl::PointXYZ>::Ptr& second_cloud);
+
+using std::chrono::high_resolution_clock;
+using std::chrono::milliseconds;
+class timer_ms {
+public:
+    timer_ms()
+    {
+        beginTime = high_resolution_clock::now();
+    }
+    timer_ms(std::string s)
+    {
+        name = s;
+        beginTime = high_resolution_clock::now();
+    }
+    ~timer_ms() {}
+    void print_time()
+    {
+        high_resolution_clock::time_point endTime = high_resolution_clock::now();
+        milliseconds timeInterval = std::chrono::duration_cast<milliseconds>(endTime - beginTime);
+        std::cout << name << " consuming " << timeInterval.count() << "ms\n";
+    }
+
+private:
+    high_resolution_clock::time_point beginTime;
+    std::string name = "Timer";
+};
 
 } // namespace ndt_mapping
 

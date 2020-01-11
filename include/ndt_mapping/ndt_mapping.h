@@ -60,7 +60,7 @@ private:
     Eigen::Matrix4f tf_base_laser, tf_laser_base; // base_link -> laser_link
 
     pose previous_pose, guess_pose, guess_pose_imu, guess_pose_odom, guess_pose_imu_odom;
-    pose current_pose, current_pose_imu, current_pose_odom, current_pose_imu_odom;
+    pose current_pose;
     pose ndt_pose, localizer_pose;
     pose added_pose; // added_pose记录点云加入地图时候的位置  // 初始设为0即可,因为第一帧如论如何也要加入地图的
 
@@ -201,6 +201,21 @@ private:
     static std::queue<pcl::PointCloud<Point>> pieceMap_queue;
     static std::queue<pcl::PointCloud<Point>> planningMap_queue;
     static std::queue<pcl::PointCloud<Point>> costMap_queue;
+
+    Eigen::Matrix4f t_localizer;
+    Eigen::Matrix4f t_base_link;
+
+    void updateParams();
+
+    void saveMapForPlanning(const pcl::PointCloud<PointI>::Ptr& input);
+
+    void clipCloudbyMinAndMaxDisAndHeight(const pcl::PointCloud<Point>::Ptr& input_cloud, pcl::PointCloud<Point>::Ptr& output_cloud, const double& min_dis, const double& max_dis, const double& height);
+
+    void downSampleFilter(const pcl::PointCloud<Point>::Ptr& input_cloud, pcl::PointCloud<Point>::Ptr& output_cloud, const double& voxel_size);
+
+    void saveMapForCostmap(const pcl::PointCloud<PointI>::Ptr& input);
+
+    void savePieceMap(const pcl::PointCloud<PointI>::Ptr& input);
 
 public:
     LidarMapping();

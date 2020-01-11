@@ -1,3 +1,4 @@
+
 #include <ndt_mapping.h>
 #include <pcl/common/transforms.h> //allows us to use pcl::transformPointCloud function
 #include <pcl/io/pcd_io.h>
@@ -47,6 +48,37 @@ void LidarMapping::clipCloudbyMinAndMaxDis(const pcl::PointCloud<Point>::Ptr& in
     cliper.setIndices(boost::make_shared<pcl::PointIndices>(indices));
     cliper.setNegative(false); //ture to remove the indices
     cliper.filter(*output_cloud);
+}
+
+void LidarMapping::clipCloudbyMinAndMaxDisAndHeight(const pcl::PointCloud<Point>::Ptr& input_cloud, pcl::PointCloud<Point>::Ptr& output_cloud, const double& min_dis, const double& max_dis, const double& height)
+{
+
+    pcl::PointIndices indices;
+#pragma omp for
+    for (size_t i = 0; i < input_cloud->points.size(); i++) {
+        double x = input_cloud->points[i].x;
+        double y = input_cloud->points[i].y;
+        double z = input_cloud->points[i].z;
+        double dist = std::sqrt(std::pow(x, 2) + std::pow(y, 2));
+
+        if (dist > min_dis && dist < max_dis && z < height)
+            indices.indices.push_back(i);
+    }
+    pcl::ExtractIndices<PointI> cliper;
+    cliper.setInputCloud(input_cloud);
+    cliper.setIndices(boost::make_shared<pcl::PointIndices>(indices));
+    cliper.setNegative(false); // false to save the indices
+    cliper.filter(*output_cloud);
+}
+
+void LidarMapping::downSampleFilter(const pcl::PointCloud<Point>::Ptr& input_cloud, pcl::PointCloud<Point>::Ptr& output_cloud, const double& voxel_size)
+{
+    // 下采样
+    pcl::PointCloud<Point>::Ptr temp(new pcl::PointCloud<Point>());
+    pcl::VoxelGrid<Point> voxel1;
+    voxel1.setLeafSize(voxel_size, voxel_size, voxel_size);
+    voxel1.setInputCloud(input_cloud);
+    voxel1.filter(*output_cloud);
 }
 
 void visualPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& first_cloud, const pcl::PointCloud<pcl::PointXYZ>::Ptr& second_cloud)

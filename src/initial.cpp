@@ -29,6 +29,9 @@ LidarMapping::LidarMapping()
 
     // is_first_piece_map = true;
 
+    t_localizer = Eigen::Matrix4f::Identity();
+    t_base_link = Eigen::Matrix4f::Identity();
+
     initial_scan_loaded = false; // 用以确定是否为第一帧点云(第一帧点云不做匹配,直接添加到地图中去)
 }
 
@@ -204,13 +207,6 @@ void LidarMapping::param_initial(ros::NodeHandle& nh, ros::NodeHandle& privateHa
     current_pose.roll = 0.0;
     current_pose.pitch = 0.0;
     current_pose.yaw = 0.0;
-
-    current_pose_imu.x = 0.0;
-    current_pose_imu.y = 0.0;
-    current_pose_imu.z = 0.0;
-    current_pose_imu.roll = 0.0;
-    current_pose_imu.pitch = 0.0;
-    current_pose_imu.yaw = 0.0;
 
     guess_pose.x = 0.0;
     guess_pose.y = 0.0;

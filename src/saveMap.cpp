@@ -54,4 +54,67 @@ void* LidarMapping::thread_map_saver(void* params)
 
     return nullptr;
 }
+
+void LidarMapping::saveMapForPlanning(const pcl::PointCloud<PointI>::Ptr& input)
+{
+    pcl::PointCloud<PointI>::Ptr clipped_cloud(new pcl::PointCloud<PointI>());
+    pcl::PointCloud<Point>::Ptr sampled_cloud(new pcl::PointCloud<Point>());
+    pcl::PointCloud<PointI>::Ptr transformed_incloud(new pcl::PointCloud<PointI>());
+
+    clipCloudbyMinAndMaxDisAndHeight(input, clipped_cloud, 1.0, 50.0, -1.3);
+
+    downSampleFilter(clipped_cloud, sampled_cloud, param_planning_voxel_size);
+
+    pcl::transformPointCloud(*sampled_cloud, *transformed_incloud, t_localizer);
+
+    whole_planning_map += *transformed_incloud;
+
+    if (whole_planning_map.points.size() > param_planning_piece_size) {
+        pcl::PointCloud<Point> cloud = whole_planning_map;
+        planningMap_queue.push(cloud);
+        whole_planning_map.clear();
+    }
+}
+
+void LidarMapping::saveMapForCostmap(const pcl::PointCloud<PointI>::Ptr& input)
+{
+    pcl::PointCloud<Point>::Ptr local_no_ground(new pcl::PointCloud<Point>());
+    pcl::PointCloud<Point>::Ptr to_globalmap_for_costmap(new pcl::PointCloud<Point>());
+    pcl::PointCloud<Point>::Ptr clipped_cloud(new pcl::PointCloud<Point>());
+    pcl::PointCloud<Point>::Ptr sampled_cloud(new pcl::PointCloud<Point>());
+
+    // 去地面
+    filter.setIfClipHeight(true);
+    filter.convert(input, local_no_ground); // 调用去地面filter导致帧率很慢,TODO::排查
+
+    // 截取点云
+    clipCloudbyMinAndMaxDisAndHeight(local_no_ground, clipped_cloud, 1.0, 30.0, 0.3);
+
+    // 下采样
+    downSampleFilter(clipped_cloud, sampled_cloud, 0.15);
+
+    // 转换点云
+    pcl::transformPointCloud(*sampled_cloud, *to_globalmap_for_costmap, t_localizer);
+
+    whole_cost_map += *to_globalmap_for_costmap;
+
+    if (whole_cost_map.points.size() > param_cost_piece_size) {
+        pcl::PointCloud<Point> cloud = whole_cost_map;
+        costMap_queue.push(cloud);
+        whole_cost_map.clear();
+    }
+}
+
+void LidarMapping::savePieceMap(const pcl::PointCloud<PointI>::Ptr& input)
+{
+    pcl::PointCloud<Point>::Ptr to_piece_map(new pcl::PointCloud<Point>);
+    downSampleFilter(input, to_piece_map, param_piece_map_voxel_size);
+
+    piece_map_container += *to_piece_map;
+    if (piece_map_container.size() > param_piecemap_size) {
+        pcl::PointCloud<Point> in_pcd = piece_map_container;
+        pieceMap_queue.push(in_pcd);
+        piece_map_container.clear();
+    }
+}
 }
