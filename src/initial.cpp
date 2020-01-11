@@ -19,13 +19,13 @@ LidarMapping::LidarMapping()
     current_velocity_imu_y = 0.0;
     current_velocity_imu_z = 0.0;
 
-    Eigen::Matrix4f gnss_transform = Eigen::Matrix4f::Identity(); // 保存GPS信号的变量
+    // Eigen::Matrix4f gnss_transform = Eigen::Matrix4f::Identity(); // 保存GPS信号的变量
 
     _use_imu = false;
     _use_odom = false;
     _imu_upside_down = false; // 用以解决坐标系方向(正负变换)问题 (比如x变更为-x等)
 
-    _incremental_voxel_update = false; // ??????????
+    _incremental_voxel_update = false;
 
     // is_first_piece_map = true;
 

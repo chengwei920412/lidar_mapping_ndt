@@ -59,15 +59,6 @@ enum class MethodType {
     use_gpu_ptr = 4,
 };
 
-static MethodType _method_type = MethodType::use_cpu; // 默认使用cpu运算
-
-static bool _incremental_voxel_update = false; // ??????????
-
-static ros::Time callback_start, callback_end, t1_start, t1_end, t2_start, t2_end, t3_start, t3_end, ndt_start, ndt_end,
-    t5_start, t5_end;
-
-static ros::Duration d_callback, d1, d2, d3, d4, d5;
-
 void visualPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& first_cloud, const pcl::PointCloud<pcl::PointXYZ>::Ptr& second_cloud);
 
 using std::chrono::high_resolution_clock;

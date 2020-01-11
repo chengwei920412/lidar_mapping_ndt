@@ -69,7 +69,7 @@ void LidarMapping::saveMapForPlanning(const pcl::PointCloud<PointI>::Ptr& input)
 
     whole_planning_map += *transformed_incloud;
 
-    if (whole_planning_map.points.size() > param_planning_piece_size) {
+    if (int(whole_planning_map.points.size()) > param_planning_piece_size) {
         pcl::PointCloud<Point> cloud = whole_planning_map;
         planningMap_queue.push(cloud);
         whole_planning_map.clear();
@@ -98,7 +98,7 @@ void LidarMapping::saveMapForCostmap(const pcl::PointCloud<PointI>::Ptr& input)
 
     whole_cost_map += *to_globalmap_for_costmap;
 
-    if (whole_cost_map.points.size() > param_cost_piece_size) {
+    if (int(whole_cost_map.points.size()) > param_cost_piece_size) {
         pcl::PointCloud<Point> cloud = whole_cost_map;
         costMap_queue.push(cloud);
         whole_cost_map.clear();
@@ -111,7 +111,7 @@ void LidarMapping::savePieceMap(const pcl::PointCloud<PointI>::Ptr& input)
     downSampleFilter(input, to_piece_map, param_piece_map_voxel_size);
 
     piece_map_container += *to_piece_map;
-    if (piece_map_container.size() > param_piecemap_size) {
+    if (int(piece_map_container.size()) > param_piecemap_size) {
         pcl::PointCloud<Point> in_pcd = piece_map_container;
         pieceMap_queue.push(in_pcd);
         piece_map_container.clear();

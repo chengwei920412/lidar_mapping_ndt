@@ -3,23 +3,21 @@ project(ndt_mapping)
 
 add_compile_options(-std=c++11)
 
-SET(CMAKE_BUILD_TYPE "Debug")
-SET(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g -ggdb")
+SET(CMAKE_BUILD_TYPE "Release")
+# SET(CMAKE_BUILD_TYPE "Debug")
+SET(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O3 -Wall -g -ggdb -fopenmp")
 SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
 
-find_package(PCL 1.7 REQUIRED)
-find_package(CUDA)
-if (CUDA_FOUND)
-	add_definitions(-DCUDA_FOUND)
-	include_directories(${CUDA_INCLUDE_DIRS})
-endif ()
-include_directories(include)
-# link_directories(lib)
-string(REPLACE ":" ";" LIBRARY_DIRS $ENV{LD_LIBRARY_PATH})
-link_directories(${LIBRARY_DIRS})  # 可以将libgpu_ndt.so加到这个路径里，然后就可以链接到了
+# find_package(CUDA)
+
+# if (CUDA_FOUND)
+# 	add_definitions(-DCUDA_FOUND)
+# 	include_directories(${CUDA_INCLUDE_DIRS})
+# endif ()
 
 find_package(Eigen3 REQUIRED)
-# find_package(OpenCV REQUIRED)
+
+find_package(PCL 1.7 REQUIRED)
 
 find_package(catkin REQUIRED COMPONENTS
   roscpp
@@ -31,12 +29,16 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
 )
 
-link_directories(${PCL_LIBRARY_DIRS})
+string(REPLACE ":" ";" LIBRARY_DIRS $ENV{LD_LIBRARY_PATH})
+link_directories(
+  ${LIBRARY_DIRS} 
+  ${PCL_LIBRARY_DIRS}
+  )  
+
 add_definitions(${PCL_DEFINITIONS})
 
 catkin_package(
   INCLUDE_DIRS include
-#  LIBRARIES fast_ndt_slam
   CATKIN_DEPENDS nav_msgs roscpp tf sensor_msgs std_msgs geometry_msgs pcl_conversions
 )
 
@@ -59,10 +61,12 @@ add_executable(ndt_mapping_node
                src/initial.cpp
                src/LidarMapping.cpp)
 
-target_link_libraries(ndt_mapping_node ${catkin_LIBRARIES} ${PCL_LIBRARIES})
-target_link_libraries(ndt_mapping_node ndt_cpu pcl_omp_registration)
+target_link_libraries(ndt_mapping_node
+               ${catkin_LIBRARIES} 
+               ${PCL_LIBRARIES}
+               ndt_cpu ) 
 
-if (CUDA_FOUND)
-	target_link_libraries(ndt_mapping_node ndt_gpu)
-endif ()
+# if (CUDA_FOUND)
+# 	target_link_libraries(ndt_mapping_node ndt_gpu)
+# endif ()
 

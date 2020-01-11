@@ -78,9 +78,11 @@ private:
     ros::Subscriber imu_sub;
     ros::Subscriber odom_sub;
     geometry_msgs::PoseStamped current_pose_msg, guess_pose_msg;
-
+    bool _incremental_voxel_update;
     ros::Publisher ndt_stat_pub;
     std_msgs::Bool ndt_stat_msg; // 确认是否是ndt的第一帧图像 bool类型
+
+    ros::Time ndt_start, ndt_end;
 
     // 设置变量,用以接受ndt配准后的参数
     double fitness_score;

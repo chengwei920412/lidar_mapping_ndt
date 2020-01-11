@@ -21,7 +21,7 @@ void LidarMapping::odom_calc(ros::Time current_time)
     offset_odom_pitch += diff_odom_pitch;
     offset_odom_yaw += diff_odom_yaw;
 
-    double currentpose_roll = previous_pose.roll + offset_odom_roll;
+    // double currentpose_roll = previous_pose.roll + offset_odom_roll;
     double currentpose_pitch = previous_pose.pitch + offset_odom_pitch;
     double currentpose_yaw = previous_pose.yaw + offset_odom_yaw;
 
@@ -55,7 +55,7 @@ void LidarMapping::imu_odom_calc(ros::Time current_time)
     offset_imu_odom_pitch += diff_imu_pitch;
     offset_imu_odom_yaw += diff_imu_yaw;
 
-    double currentpose_roll = previous_pose.roll + offset_imu_odom_roll;
+    // double currentpose_roll = previous_pose.roll + offset_imu_odom_roll;
     double currentpose_pitch = previous_pose.pitch + offset_imu_odom_pitch;
     double currentpose_yaw = previous_pose.yaw + offset_imu_odom_yaw;
 

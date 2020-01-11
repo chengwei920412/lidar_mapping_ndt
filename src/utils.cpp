@@ -97,7 +97,8 @@ void visualPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& first_cloud, co
     pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> transformed_cloud_color_handler(second_cloud, 230, 20, 20); // Red
     viewer.addPointCloud(second_cloud, transformed_cloud_color_handler, "transformed_cloud");
 
-    viewer.addCoordinateSystem(1.0, 0); //Adds 3D axes describing a coordinate system to screen at 0,0,0.
+    //Adds 3D axes describing a coordinate system to screen at 0,0,0.
+    viewer.addCoordinateSystem(1.0, 0, 0);
     viewer.setBackgroundColor(0.05, 0.05, 0.05, 0); // Setting background to a dark grey
     viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "original_cloud");
     viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "transformed_cloud");
